@@ -1,6 +1,6 @@
-module github.com/Giulio2002/faster_keccak
+module github.com/Giulio2002/fast_keccak
 
-go 1.25.5
+go 1.24.0
 
 require golang.org/x/crypto v0.48.0
 
