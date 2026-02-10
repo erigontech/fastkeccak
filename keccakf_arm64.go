@@ -2,12 +2,15 @@
 
 package keccak
 
-import "runtime"
+import (
+	"runtime"
+
+	"golang.org/x/sys/cpu"
+)
 
 // Apple Silicon always has Armv8.2-A SHA3 extensions (VEOR3, VRAX1, VXAR, VBCAX).
-// On non-Apple ARM64, these instructions are apparently slower than pure Go
-// (per Go stdlib comment in crypto/internal/fips140/sha3/sha3_arm64.go).
-var useSHA3 = runtime.GOOS == "darwin"
+// On other ARM64 platforms, detect at runtime via CPU feature flags.
+var useSHA3 = runtime.GOOS == "darwin" || runtime.GOOS == "ios" || cpu.ARM64.HasSHA3
 
 //go:noescape
 func keccakF1600NEON(a *[200]byte)
