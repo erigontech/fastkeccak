@@ -50,3 +50,5 @@ go test -v ./...
 # Fuzz against x/crypto reference
 go test -fuzz FuzzSum256 -fuzztime 30s
 ```
+
+Authors: Giulio Rebuffo
