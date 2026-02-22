@@ -17,6 +17,9 @@ var useSHA3 = runtime.GOOS == "darwin" || runtime.GOOS == "ios" || cpu.ARM64.Has
 //go:noescape
 func keccakF1600(a *[200]byte)
 
+//go:noescape
+func xorAndPermute(state *[200]byte, buf *byte)
+
 // Sum256 computes the Keccak-256 hash of data. Zero heap allocations when SHA3 is available.
 func Sum256(data []byte) [32]byte {
 	if !useSHA3 {
