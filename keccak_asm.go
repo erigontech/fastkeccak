@@ -33,15 +33,13 @@ func (s *sponge) Write(p []byte) (int, error) {
 		s.absorbed += x
 		p = p[x:]
 		if s.absorbed == rate {
-			xorIn(&s.state, s.buf[:])
-			keccakF1600(&s.state)
+			xorAndPermute(&s.state, &s.buf[0])
 			s.absorbed = 0
 		}
 	}
 
 	for len(p) >= rate {
-		xorIn(&s.state, p[:rate])
-		keccakF1600(&s.state)
+		xorAndPermute(&s.state, &p[0])
 		p = p[rate:]
 	}
 
@@ -110,8 +108,7 @@ func sum256Sponge(data []byte) [32]byte {
 	var state [200]byte
 
 	for len(data) >= rate {
-		xorIn(&state, data[:rate])
-		keccakF1600(&state)
+		xorAndPermute(&state, &data[0])
 		data = data[rate:]
 	}
 
@@ -124,18 +121,13 @@ func sum256Sponge(data []byte) [32]byte {
 }
 
 func xorIn(state *[200]byte, data []byte) {
-	n := len(data) >> 3
 	stateU64 := (*[25]uint64)(unsafe.Pointer(state))
-	for i := 0; i < n; i++ {
-		stateU64[i] ^= le64(data[8*i:])
+	n := len(data) >> 3
+	p := unsafe.Pointer(unsafe.SliceData(data))
+	for i := range n {
+		stateU64[i] ^= *(*uint64)(unsafe.Add(p, uintptr(i)<<3))
 	}
 	for i := n << 3; i < len(data); i++ {
 		state[i] ^= data[i]
 	}
-}
-
-func le64(b []byte) uint64 {
-	_ = b[7]
-	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
-		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 }
