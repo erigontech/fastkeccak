@@ -3,8 +3,6 @@
 package keccak
 
 import (
-	"hash"
-
 	"golang.org/x/crypto/sha3"
 )
 
@@ -20,12 +18,12 @@ func Sum256(data []byte) [32]byte {
 
 // Hasher is a streaming Keccak-256 hasher wrapping x/crypto/sha3.
 type Hasher struct {
-	h hash.Hash
+	h KeccakState
 }
 
 func (h *Hasher) init() {
 	if h.h == nil {
-		h.h = sha3.NewLegacyKeccak256()
+		h.h = sha3.NewLegacyKeccak256().(KeccakState)
 	}
 }
 
@@ -36,9 +34,10 @@ func (h *Hasher) Reset() {
 }
 
 // Write absorbs data into the hasher.
-func (h *Hasher) Write(p []byte) {
+// Panics if called after Read.
+func (h *Hasher) Write(p []byte) (int, error) {
 	h.init()
-	h.h.Write(p)
+	return h.h.Write(p)
 }
 
 // Sum256 finalizes and returns the 32-byte Keccak-256 digest.
@@ -48,4 +47,25 @@ func (h *Hasher) Sum256() [32]byte {
 	var out [32]byte
 	h.h.Sum(out[:0])
 	return out
+}
+
+// Sum appends the current Keccak-256 digest to b and returns the resulting slice.
+// Does not modify the hasher state.
+func (h *Hasher) Sum(b []byte) []byte {
+	h.init()
+	return h.h.Sum(b)
+}
+
+// Size returns the number of bytes Sum will produce (32).
+func (h *Hasher) Size() int { return 32 }
+
+// BlockSize returns the sponge rate in bytes (136).
+func (h *Hasher) BlockSize() int { return rate }
+
+// Read squeezes an arbitrary number of bytes from the sponge.
+// On the first call, it pads and permutes, transitioning from absorbing to squeezing.
+// Subsequent calls to Write will panic. It never returns an error.
+func (h *Hasher) Read(out []byte) (int, error) {
+	h.init()
+	return h.h.Read(out)
 }
