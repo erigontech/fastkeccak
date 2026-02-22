@@ -14,3 +14,7 @@ type KeccakState interface {
 const rate = 136 // sponge rate for Keccak-256: (1600 - 2*256) / 8
 
 var _ KeccakState = (*Hasher)(nil)
+
+func NewFastKeccak() *Hasher {
+	return &Hasher{}
+}
