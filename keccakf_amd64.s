@@ -2,8 +2,8 @@
 
 //go:build !purego
 
-// func keccakF1600(a *[200]byte)
-TEXT ·keccakF1600(SB), $200-8
+// func keccakF1600Generic(a *[200]byte)
+TEXT ·keccakF1600Generic(SB), $200-8
 	MOVQ a+0(FP), DI
 
 	// Convert the user state into an internal state
