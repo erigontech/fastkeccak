@@ -2,11 +2,7 @@
 
 package keccak
 
-import (
-	"unsafe"
-
-	"golang.org/x/sys/cpu"
-)
+import "golang.org/x/sys/cpu"
 
 var useBMI2 = cpu.X86.HasBMI2
 
@@ -15,6 +11,12 @@ func keccakF1600Generic(a *[200]byte)
 
 //go:noescape
 func keccakF1600BMI2(a *[200]byte)
+
+//go:noescape
+func xorAndPermuteGeneric(state *[200]byte, buf *byte)
+
+//go:noescape
+func xorAndPermuteBMI2(state *[200]byte, buf *byte)
 
 func keccakF1600(a *[200]byte) {
 	if useBMI2 {
@@ -31,6 +33,9 @@ func Sum256(data []byte) [32]byte { return sum256Sponge(data) }
 type Hasher struct{ sponge }
 
 func xorAndPermute(state *[200]byte, buf *byte) {
-	xorIn(state, unsafe.Slice(buf, rate))
-	keccakF1600(state)
+	if useBMI2 {
+		xorAndPermuteBMI2(state, buf)
+	} else {
+		xorAndPermuteGeneric(state, buf)
+	}
 }

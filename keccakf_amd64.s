@@ -2,6 +2,33 @@
 
 //go:build !purego
 
+// func xorAndPermuteGeneric(state *[200]byte, buf *byte)
+// XORs a full rate (136 bytes = 17 lanes) into state, then tail-calls keccakF1600Generic.
+TEXT ·xorAndPermuteGeneric(SB), $0-16
+	MOVQ state+0(FP), DI
+	MOVQ buf+8(FP), SI
+
+	MOVQ 0(SI), AX;   XORQ AX, 0(DI)
+	MOVQ 8(SI), AX;   XORQ AX, 8(DI)
+	MOVQ 16(SI), AX;  XORQ AX, 16(DI)
+	MOVQ 24(SI), AX;  XORQ AX, 24(DI)
+	MOVQ 32(SI), AX;  XORQ AX, 32(DI)
+	MOVQ 40(SI), AX;  XORQ AX, 40(DI)
+	MOVQ 48(SI), AX;  XORQ AX, 48(DI)
+	MOVQ 56(SI), AX;  XORQ AX, 56(DI)
+	MOVQ 64(SI), AX;  XORQ AX, 64(DI)
+	MOVQ 72(SI), AX;  XORQ AX, 72(DI)
+	MOVQ 80(SI), AX;  XORQ AX, 80(DI)
+	MOVQ 88(SI), AX;  XORQ AX, 88(DI)
+	MOVQ 96(SI), AX;  XORQ AX, 96(DI)
+	MOVQ 104(SI), AX; XORQ AX, 104(DI)
+	MOVQ 112(SI), AX; XORQ AX, 112(DI)
+	MOVQ 120(SI), AX; XORQ AX, 120(DI)
+	MOVQ 128(SI), AX; XORQ AX, 128(DI)
+
+	// state pointer is already at 0(FP); tail-call the permutation
+	JMP ·keccakF1600Generic(SB)
+
 // func keccakF1600Generic(a *[200]byte)
 TEXT ·keccakF1600Generic(SB), $200-8
 	MOVQ a+0(FP), DI
