@@ -2,11 +2,7 @@
 
 package keccak
 
-import (
-	"unsafe"
-
-	"golang.org/x/crypto/sha3"
-)
+import "golang.org/x/crypto/sha3"
 
 // useASM is set by platform-specific init to indicate hardware acceleration is available.
 // When false, Sum256 and Hasher fall back to x/crypto/sha3.
@@ -61,10 +57,11 @@ func (s *sponge) Write(p []byte) (int, error) {
 // Does not modify the sponge state.
 func (s *sponge) Sum256() [32]byte {
 	state := s.state
-	xorIn(&state, s.buf[:s.absorbed])
-	state[s.absorbed] ^= 0x01
-	state[rate-1] ^= 0x80
-	keccakF1600(&state)
+	var lastBlock [rate]byte
+	copy(lastBlock[:], s.buf[:s.absorbed])
+	lastBlock[s.absorbed] = 0x01
+	lastBlock[rate-1] |= 0x80
+	xorAndPermute(&state, &lastBlock[0])
 	return [32]byte(state[:32])
 }
 
@@ -103,10 +100,10 @@ func (s *sponge) Read(out []byte) (int, error) {
 }
 
 func (s *sponge) padAndSqueeze() {
-	xorIn(&s.state, s.buf[:s.absorbed])
-	s.state[s.absorbed] ^= 0x01
-	s.state[rate-1] ^= 0x80
-	keccakF1600(&s.state)
+	clear(s.buf[s.absorbed:])
+	s.buf[s.absorbed] = 0x01
+	s.buf[rate-1] |= 0x80
+	xorAndPermute(&s.state, &s.buf[0])
 	s.squeezing = true
 	s.readIdx = 0
 }
@@ -120,10 +117,12 @@ func sum256Sponge(data []byte) [32]byte {
 		data = data[rate:]
 	}
 
-	xorIn(&state, data)
-	state[len(data)] ^= 0x01
-	state[rate-1] ^= 0x80
-	keccakF1600(&state)
+	// Pad the final partial block and permute in one call.
+	var lastBlock [rate]byte
+	copy(lastBlock[:], data)
+	lastBlock[len(data)] = 0x01
+	lastBlock[rate-1] |= 0x80
+	xorAndPermute(&state, &lastBlock[0])
 
 	return [32]byte(state[:32])
 }
@@ -217,14 +216,3 @@ func (h *Hasher) Read(out []byte) (int, error) {
 	return h.sponge.Read(out)
 }
 
-func xorIn(state *[200]byte, data []byte) {
-	stateU64 := (*[25]uint64)(unsafe.Pointer(state))
-	n := len(data) >> 3
-	p := unsafe.Pointer(unsafe.SliceData(data))
-	for i := range n {
-		stateU64[i] ^= *(*uint64)(unsafe.Add(p, uintptr(i)<<3))
-	}
-	for i := n << 3; i < len(data); i++ {
-		state[i] ^= data[i]
-	}
-}
