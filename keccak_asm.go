@@ -55,7 +55,11 @@ func (s *sponge) Write(p []byte) (int, error) {
 
 // Sum256 finalizes and returns the 32-byte Keccak-256 digest.
 // Does not modify the sponge state.
+// Panics if called after Read.
 func (s *sponge) Sum256() [32]byte {
+	if s.squeezing {
+		panic("keccak: Sum after Read")
+	}
 	state := s.state
 	var lastBlock [rate]byte
 	copy(lastBlock[:], s.buf[:s.absorbed])
