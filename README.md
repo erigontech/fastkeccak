@@ -7,7 +7,7 @@ Go's `crypto/sha3` only exposes SHA-3 (domain `0x06`), not Keccak-256 (domain `0
 This package uses assembly-optimized keccak-f[1600] permutations instead:
 
 - **arm64 (Apple Silicon, and any CPU with the Armv8.2-A SHA3 extensions, FEAT_SHA3):** EOR3/RAX1/XAR/BCAX vector instructions — spelled `VEOR3`/`VRAX1`/`VXAR`/`VBCAX` in the Go assembler — with the block XOR fused into the permutation
-- **amd64 (requires BMI1/BMI2, e.g. Intel Haswell or AMD Excavator and newer):** fully unrolled permutation using RORX/ANDN, with the block XOR fused into the permutation
+- **amd64 (requires BMI1/BMI2, e.g. Intel Haswell or AMD Excavator and newer):** two-round-loop permutation using RORX/ANDN, with the block XOR fused into the permutation
 - **Fallback (other platforms, older CPUs, or the `purego` build tag):** delegates to `x/crypto/sha3`, which allocates
 
 On amd64 and non-Darwin arm64 the choice between assembly and fallback is made
