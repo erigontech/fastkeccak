@@ -106,7 +106,7 @@ func main() {
 	for round := 0; round < 2; round++ {
 		p("")
 		p("\t// Round %d of 2", round)
-		emitRound(round == 0, round)
+		emitRound(round)
 	}
 	p("")
 	p("\tADDQ $16, R13")
@@ -122,10 +122,10 @@ func main() {
 	p("GLOBL keccakRC<>(SB), RODATA|NOPTR, $%d", (len(rc)+1)*8)
 }
 
-// srcArray: true = source is array (DI), dest is stack (SP)
-//
-//	false = source is stack (SP), dest is array (DI)
-func emitRound(srcArray bool, round int) {
+// Round 0 reads the array (DI) and writes the stack (SP); round 1 reads the
+// stack and writes the array back.
+func emitRound(round int) {
+	srcArray := round == 0
 
 	// Theta: 5 column parities → AX, BX, CX, DX, SI.
 	colR := [5]string{"AX", "BX", "CX", "DX", "SI"}
