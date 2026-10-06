@@ -7,7 +7,7 @@ Go's `crypto/sha3` only exposes SHA-3 (domain `0x06`), not Keccak-256 (domain `0
 This package uses assembly-optimized keccak-f[1600] permutations instead:
 
 - **arm64 (Apple Silicon, and any CPU with the Armv8.2-A SHA3 extensions, FEAT_SHA3):** EOR3/RAX1/XAR/BCAX vector instructions — spelled `VEOR3`/`VRAX1`/`VXAR`/`VBCAX` in the Go assembler — with the block XOR fused into the permutation
-- **amd64 (requires BMI1/BMI2, e.g. Intel Haswell or AMD Excavator and newer):** fully unrolled permutation using RORX/ANDN, with the block XOR fused into the permutation
+- **amd64 (requires BMI1/BMI2, e.g. Intel Haswell or AMD Excavator and newer):** two-round-loop permutation using RORX/ANDN, with the block XOR fused into the permutation
 - **Fallback (other platforms, older CPUs, or the `purego` build tag):** delegates to `x/crypto/sha3`, which allocates
 
 On amd64 and non-Darwin arm64 the choice between assembly and fallback is made
@@ -47,21 +47,21 @@ Apple M4 Max (arm64, Armv8.2-A SHA3 extensions), Go 1.26.5, `-count=6`:
 | 4 KB | 3.928 us/op (1043 MB/s) | 7.108 us/op (576 MB/s) | **1.8x** |
 | 500 KB | 479.3 us/op (1068 MB/s) | 852.1 us/op (601 MB/s) | **1.8x** |
 
-AMD EPYC 4344P (amd64, Zen 4, BMI1/BMI2), Linux, Go 1.26.6, `-count=10`.
-x/crypto here reuses the digest buffer, so no allocation is charged to it:
+AMD EPYC 4344P (amd64, Zen 4, BMI1/BMI2), Linux, Go 1.27.1, `-count=10`, pinned
+to one core. x/crypto here reuses the digest buffer, so no allocation is charged
+to it:
 
 | Size | fastkeccak | x/crypto/sha3 | Speedup |
 |--------|------------------------|------------------------|---------|
-| 32 B | 203.5 ns/op (157 MB/s) | 244.3 ns/op (131 MB/s) | **1.20x** |
-| 128 B | 209.8 ns/op (610 MB/s) | 241.4 ns/op (530 MB/s) | **1.15x** |
-| 256 B | 473.4 ns/op (541 MB/s) | 468.4 ns/op (547 MB/s) | 0.99x |
-| 1 KB | 1.772 us/op (578 MB/s) | 1.815 us/op (564 MB/s) | **1.02x** |
-| 4 KB | 6.186 us/op (662 MB/s) | 6.988 us/op (586 MB/s) | **1.13x** |
-| 500 KB | 724.9 us/op (706 MB/s) | 845.0 us/op (606 MB/s) | **1.17x** |
+| 32 B | 216.1 ns/op (148 MB/s) | 256.8 ns/op (125 MB/s) | **1.19x** |
+| 128 B | 220.8 ns/op (580 MB/s) | 254.2 ns/op (504 MB/s) | **1.15x** |
+| 256 B | 425.7 ns/op (601 MB/s) | 492.8 ns/op (520 MB/s) | **1.16x** |
+| 1 KB | 1.657 us/op (618 MB/s) | 1.912 us/op (536 MB/s) | **1.15x** |
+| 4 KB | 6.431 us/op (637 MB/s) | 7.330 us/op (559 MB/s) | **1.14x** |
+| 500 KB | 777.4 us/op (659 MB/s) | 892.5 us/op (574 MB/s) | **1.15x** |
 
-The BMI2 kernel wins by a much smaller margin than the arm64 one, and at 256 B
-it is a shade slower than x/crypto — reproducible across runs, not noise. Treat
-the arm64 numbers as the best case rather than as what amd64 delivers.
+The BMI2 kernel wins by a much smaller margin than the arm64 one. Treat the
+arm64 numbers as the best case rather than as what amd64 delivers.
 
 The arm64 table above still compares `Sum256` against `x/crypto`'s `Sum(nil)`,
 which charges x/crypto one 32 B allocation per call, so its speedups are
