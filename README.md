@@ -59,9 +59,12 @@ x/crypto here reuses the digest buffer, so no allocation is charged to it:
 | 4 KB | 6.186 us/op (662 MB/s) | 6.988 us/op (586 MB/s) | **1.13x** |
 | 500 KB | 724.9 us/op (706 MB/s) | 845.0 us/op (606 MB/s) | **1.17x** |
 
-The BMI2 kernel wins by a much smaller margin than the arm64 one, and at 256 B
-it is a shade slower than x/crypto — reproducible across runs, not noise. Treat
-the arm64 numbers as the best case rather than as what amd64 delivers.
+The BMI2 kernel wins by a much smaller margin than the arm64 one. Treat the
+arm64 numbers as the best case rather than as what amd64 delivers.
+
+This table predates the two-round loop, which on the same CPU took 9–16% less
+time than the fully unrolled kernel from 64 B to 1 KB, and the same at 500 KB;
+it needs regenerating.
 
 The arm64 table above still compares `Sum256` against `x/crypto`'s `Sum(nil)`,
 which charges x/crypto one 32 B allocation per call, so its speedups are
