@@ -2,7 +2,8 @@
 
 // gen_keccakf_bmi2.go generates keccakf_amd64_bmi2.s — a BMI2-optimized
 // Keccak-f[1600] permutation using RORXQ and ANDNQ.
-// Fully unrolled (all 24 rounds).
+// A two-round loop body runs 12 times: the fully unrolled 24 rounds (~22 KB)
+// fall out of the op cache in a large binary and run from the legacy decoder.
 //
 // Key optimizations:
 //   - D values kept in registers (R14, R15, BP, SI, DX), not on stack
@@ -99,23 +100,32 @@ func main() {
 	}
 	p("")
 	p("rounds:")
-
-	for round := 0; round < 24; round++ {
+	p("\tLEAQ keccakRC<>(SB), R13")
+	p("")
+	p("loop:")
+	for round := 0; round < 2; round++ {
 		p("")
-		p("\t// Round %d", round)
-		srcArray := (round % 2) == 0
-		emitRound(srcArray, round)
+		p("\t// Round %d of 2", round)
+		emitRound(round)
 	}
-
+	p("")
+	p("\tADDQ $16, R13")
+	p("\tCMPQ (R13), $0")
+	p("\tJNE loop")
 	p("\tRET")
+	p("")
+	p("// Round constants, ended by a zero sentinel: no round constant is zero.")
+	for i, c := range rc {
+		p("DATA keccakRC<>+%d(SB)/8, $0x%016x", i*8, c)
+	}
+	p("DATA keccakRC<>+%d(SB)/8, $0", len(rc)*8)
+	p("GLOBL keccakRC<>(SB), RODATA|NOPTR, $%d", (len(rc)+1)*8)
 }
 
-// srcArray: true = source is array (DI), dest is stack (SP)
-//
-//	false = source is stack (SP), dest is array (DI)
-func emitRound(srcArray bool, round int) {
-	// Load round constant into R13.
-	p("\tMOVQ $0x%016x, R13", rc[round])
+// Round 0 reads the array (DI) and writes the stack (SP); round 1 reads the
+// stack and writes the array back.
+func emitRound(round int) {
+	srcArray := round == 0
 
 	// Theta: 5 column parities → AX, BX, CX, DX, SI.
 	colR := [5]string{"AX", "BX", "CX", "DX", "SI"}
@@ -143,11 +153,11 @@ func emitRound(srcArray bool, round int) {
 
 	// Five chi groups.
 	for g := 0; g < 5; g++ {
-		emitChi(g, srcArray, g == 0)
+		emitChi(g, srcArray, g == 0, round)
 	}
 }
 
-func emitChi(g int, srcArray, first bool) {
+func emitChi(g int, srcArray, first bool, round int) {
 	B := [5]string{"R8", "R9", "R10", "R11", "R12"}
 
 	// Load lane, XOR with D (register!), rotate.
@@ -165,7 +175,7 @@ func emitChi(g int, srcArray, first bool) {
 		p("\tANDNQ %s, %s, AX", B[(j+2)%5], B[(j+1)%5])
 		p("\tXORQ %s, AX", B[j])
 		if first && j == 0 {
-			p("\tXORQ R13, AX")
+			p("\tXORQ %d(R13), AX", round*8)
 		}
 		p("\tMOVQ AX, %s", off(g*5+j, !srcArray))
 	}
