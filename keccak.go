@@ -8,6 +8,8 @@ package keccak
 // `go run pkg@version`, which does not touch go.mod.
 //go:generate go run gen_keccakf_bmi2.go
 //go:generate go run github.com/klauspost/asmfmt/cmd/asmfmt@v1.3.2 -w keccakf_amd64_bmi2.s
+//go:generate go run gen_keccakf_avx512.go
+//go:generate go run github.com/klauspost/asmfmt/cmd/asmfmt@v1.3.2 -w keccakf_amd64_avx512.s
 
 import "hash"
 

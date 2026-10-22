@@ -4,6 +4,8 @@ package keccak
 
 import "golang.org/x/sys/cpu"
 
+var useAVX512 = cpu.X86.HasAVX512F && cpu.X86.HasAVX512VL
+
 func init() { useASM = cpu.X86.HasBMI1 && cpu.X86.HasBMI2 }
 
 // keccakF1600BMI2 permutes state. When buf != nil, it first XORs rate bytes
@@ -12,10 +14,19 @@ func init() { useASM = cpu.X86.HasBMI1 && cpu.X86.HasBMI2 }
 //go:noescape
 func keccakF1600BMI2(a *[200]byte, buf *byte)
 
+// keccakF1600AVX512 has the same contract as keccakF1600BMI2.
+//
+//go:noescape
+func keccakF1600AVX512(a *[200]byte, buf *byte)
+
 func keccakF1600(a *[200]byte) {
-	keccakF1600BMI2(a, nil)
+	xorAndPermute(a, nil)
 }
 
 func xorAndPermute(state *[200]byte, buf *byte) {
-	keccakF1600BMI2(state, buf)
+	if useAVX512 {
+		keccakF1600AVX512(state, buf)
+	} else {
+		keccakF1600BMI2(state, buf)
+	}
 }
