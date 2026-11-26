@@ -149,3 +149,23 @@ func TestSTWPauseWhileHashing(t *testing.T) {
 			"the block loop has no preemption point", got, floor)
 	}
 }
+
+func BenchmarkHasherOneByteWrites(b *testing.B) {
+	if !useASM {
+		b.Skip("hardware acceleration unavailable on this CPU")
+	}
+	for _, size := range []int{32, 128, 256} {
+		data := make([]byte, size)
+		b.Run(benchName(size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			for b.Loop() {
+				var h Hasher
+				for i := range data {
+					h.Write(data[i : i+1])
+				}
+				h.Sum256()
+			}
+		})
+	}
+}
