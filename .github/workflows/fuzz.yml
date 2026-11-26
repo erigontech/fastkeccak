@@ -1,0 +1,114 @@
+name: Fuzz
+
+# Mutation fuzzing that keeps its corpus. The 20 s fuzz steps in ci.yml start
+# from the seeds on every run; this nightly job continues from the corpus the
+# previous run left, so the search goes deeper each night.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # nightly 03:00 UTC, on the default branch
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Duration per fuzz target (Go duration, e.g. 10m, 1h)'
+        required: false
+        default: '30m'
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    if: github.repository == 'erigontech/fastkeccak' || github.event_name != 'schedule'
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each runner fuzzes a different implementation (see ci.yml).
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15]
+        fn: [FuzzSum256, FuzzWriteChunks]
+    runs-on: ${{ matrix.os }}
+    env:
+      NAME: fuzz-corpus-${{ matrix.os }}-${{ matrix.fn }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # The Actions cache cannot update an entry once saved and evicts idle ones, so
+      # the corpus lives in artifacts: each run continues from the newest one of its
+      # branch (forks excluded). A failure here stops the leg, because fuzzing from an
+      # empty corpus would replace the kept one.
+      - name: Restore fuzz corpus
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          corpus="$(go env GOCACHE)/fuzz"
+          mkdir -p "$corpus"
+          echo "CORPUS=$corpus" >> "$GITHUB_ENV"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=100" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == env.GITHUB_REF_NAME and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | .workflow_run.id // empty')
+          if [ -z "$run" ]; then
+            echo "::warning::No previous corpus for $NAME"
+            exit 0
+          fi
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$corpus"
+          echo "Corpus restored from run $run: $(find "$corpus" -type f | wc -l) files"
+
+      - name: Fuzz ${{ matrix.fn }}
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '30m' }}
+          FN: ${{ matrix.fn }}
+        run: |
+          out="$RUNNER_TEMP/fuzz.out"
+          set +e
+          go test . -run '^$' -fuzz "^${FN}\$" -fuzztime "$FUZZTIME" 2>&1 | tee "$out"
+          status="${PIPESTATUS[0]}"
+          set -e
+          [ "$status" -eq 0 ] && exit 0
+          # Go before 1.27 can report the end of the fuzztime window as a failure
+          # (golang/go#75804): a bare "context deadline exceeded" with no reproducer.
+          # A real crash always writes one under testdata/fuzz/. Drop this on Go 1.27+.
+          if grep -qE '^[[:space:]]*context deadline exceeded[[:space:]]*$' "$out" \
+            && ! grep -q 'failure while testing seed corpus entry' "$out" \
+            && [ ! -d "testdata/fuzz/$FN" ]; then
+            echo "::warning::$FN: end-of-window 'context deadline exceeded' (golang/go#75804), no defect found"
+            exit 0
+          fi
+          exit "$status"
+
+      - name: Upload crash reproducer
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crash-${{ matrix.os }}-${{ matrix.fn }}
+          path: testdata/fuzz/
+          if-no-files-found: ignore
+
+      # On a fuzz failure too, so a run that finds a crash keeps the rest of its corpus.
+      # Never after a failed restore: a partial corpus would become the newest one.
+      - name: Upload fuzz corpus
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.CORPUS }}
+          retention-days: 30
+          if-no-files-found: ignore
+          overwrite: true
