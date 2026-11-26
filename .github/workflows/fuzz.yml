@@ -62,8 +62,9 @@ jobs:
           corpus="$(go env GOCACHE)/fuzz"
           mkdir -p "$corpus"
           echo "CORPUS=$corpus" >> "$GITHUB_ENV"
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=100" \
-            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == env.GITHUB_REF_NAME and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | .workflow_run.id // empty')
+          run=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == env.GITHUB_REF_NAME and .workflow_run.head_repository_id == .workflow_run.repository_id) | "\(.created_at) \(.workflow_run.id)"' \
+            | sort | tail -n 1 | cut -d' ' -f2)
           if [ -z "$run" ]; then
             echo "::warning::No previous corpus for $NAME"
             exit 0
