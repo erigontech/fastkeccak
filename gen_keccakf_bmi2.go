@@ -9,7 +9,8 @@
 //   - D values kept in registers (R14, R15, BP, SI, DX), not on stack
 //   - State alternates between the original array (DI) and a 200-byte stack
 //     buffer, avoiding a second 200-byte copy
-//   - Frame is only 200 bytes (25 × 8 for temp state)
+//   - Frame is 208 bytes: 25 × 8 for temp state, then the end of the
+//     round-constant table
 //   - Optional XOR-and-permute: when buf != nil, XORs rate bytes into state
 //     before permuting, eliminating one full memory pass
 //
@@ -56,7 +57,7 @@ var groups = [5][5]lane{
 var dReg = [5]string{"R14", "R15", "BP", "SI", "DX"}
 
 const (
-	fsize     = 200
+	fsize     = 208
 	rateLanes = 17 // rate / 8 = 136 / 8
 )
 
@@ -101,6 +102,8 @@ func main() {
 	p("")
 	p("rounds:")
 	p("\tLEAQ keccakRC<>(SB), R13")
+	p("\tLEAQ %d(R13), AX", len(rc)*8)
+	p("\tMOVQ AX, 200(SP)")
 	p("")
 	p("loop:")
 	for round := 0; round < 2; round++ {
@@ -110,16 +113,14 @@ func main() {
 	}
 	p("")
 	p("\tADDQ $16, R13")
-	p("\tCMPQ (R13), $0")
+	p("\tCMPQ R13, 200(SP)")
 	p("\tJNE loop")
 	p("\tRET")
 	p("")
-	p("// Round constants, ended by a zero sentinel: no round constant is zero.")
 	for i, c := range rc {
 		p("DATA keccakRC<>+%d(SB)/8, $0x%016x", i*8, c)
 	}
-	p("DATA keccakRC<>+%d(SB)/8, $0", len(rc)*8)
-	p("GLOBL keccakRC<>(SB), RODATA|NOPTR, $%d", (len(rc)+1)*8)
+	p("GLOBL keccakRC<>(SB), RODATA|NOPTR, $%d", len(rc)*8)
 }
 
 // Round 0 reads the array (DI) and writes the stack (SP); round 1 reads the

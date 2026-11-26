@@ -5,7 +5,7 @@
 #include "textflag.h"
 
 // func keccakF1600BMI2(a *[200]byte, buf *byte)
-TEXT ·keccakF1600BMI2(SB), $200-16
+TEXT ·keccakF1600BMI2(SB), $208-16
 	MOVQ  a+0(FP), DI
 	MOVQ  buf+8(FP), BX
 	TESTQ BX, BX
@@ -49,6 +49,8 @@ TEXT ·keccakF1600BMI2(SB), $200-16
 
 rounds:
 	LEAQ keccakRC<>(SB), R13
+	LEAQ 192(R13), AX
+	MOVQ AX, 200(SP)
 
 loop:
 
@@ -431,11 +433,10 @@ loop:
 	MOVQ  AX, 192(DI)
 
 	ADDQ $16, R13
-	CMPQ (R13), $0
+	CMPQ R13, 200(SP)
 	JNE  loop
 	RET
 
-// Round constants, ended by a zero sentinel: no round constant is zero.
 DATA keccakRC<>+0(SB)/8, $0x0000000000000001
 DATA keccakRC<>+8(SB)/8, $0x0000000000008082
 DATA keccakRC<>+16(SB)/8, $0x800000000000808a
@@ -460,5 +461,4 @@ DATA keccakRC<>+160(SB)/8, $0x8000000080008081
 DATA keccakRC<>+168(SB)/8, $0x8000000000008080
 DATA keccakRC<>+176(SB)/8, $0x0000000080000001
 DATA keccakRC<>+184(SB)/8, $0x8000000080008008
-DATA keccakRC<>+192(SB)/8, $0
-GLOBL keccakRC<>(SB), RODATA|NOPTR, $200
+GLOBL keccakRC<>(SB), RODATA|NOPTR, $192
