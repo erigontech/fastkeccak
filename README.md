@@ -72,10 +72,8 @@ only allocates when the caller passes `nil` — `h.Sum(buf[:0])` is allocation
 free too, on both architectures. The zero-allocation property is an API
 difference, not a permanent x/crypto cost.
 
-`go test -run=^$ -bench='FasterKeccak$|XCrypto$'` reproduces the arm64 table.
-The amd64 x/crypto column came from a local variant of `BenchmarkXCrypto` ending
-in `out = [32]byte(h.Sum(out[:0]))` instead of `h.Sum(nil)`; the repository has
-no reused-buffer benchmark yet.
+`go test -run=^$ -bench='FasterKeccak$|XCrypto$'` reproduces the amd64 table:
+`BenchmarkXCrypto` reuses the digest buffer with `h.Sum(out[:0])`.
 
 ## Testing
 
