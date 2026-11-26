@@ -77,12 +77,12 @@ var (
 // both groups.
 const keptLane = 24
 
-// Frame layout: 25 lane slots of temp state (keptLane's is unused), then
-// 8-byte slots.
+// Frame layout: 25 lane slots of temp state, then 8-byte slots. keptLane is
+// the last lane and its slot is never used, so the 8-byte slots start there.
 const (
-	rcPtr     = 200 // pointer to the round constants of the current even round
-	rcEnd     = 208 // end of the round constants table
-	dSlot     = 216 // D[3], D[4]
+	rcPtr     = keptLane * 8 // pointer to the round constants of the current even round
+	rcEnd     = rcPtr + 8    // end of the round constants table
+	dSlot     = rcEnd + 8    // D[3], D[4]
 	fsize     = dSlot + 16
 	rateLanes = 17 // rate / 8 = 136 / 8
 )
