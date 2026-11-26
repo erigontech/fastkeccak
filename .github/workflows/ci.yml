@@ -92,8 +92,8 @@ jobs:
       #
       # This is NOT a correctness check — the tests and the fuzzing against
       # x/crypto cover that. It answers a different question: which file is
-      # the source of truth. keccakf_amd64_bmi2.s is 4.6k lines emitted by a
-      # 175-line generator; nobody can meaningfully review the assembly, but
+      # the source of truth. keccakf_amd64_bmi2.s is ~480 lines emitted by a
+      # ~230-line generator; nobody can meaningfully review the assembly, but
       # anyone can review the generator. Pinning ".s == generator output" is
       # what makes reviewing the generator a valid substitute, and it
       # enforces the `DO NOT EDIT` header the generated file already carries.
