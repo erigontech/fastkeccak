@@ -186,8 +186,10 @@ func emitChi(g int, src, dst string, rcOff int) {
 		}
 	}
 
-	// Chi: out[j] = B[j] ^ (~B[(j+1)%5] & B[(j+2)%5]).
-	for j := 0; j < 5; j++ {
+	// Chi: out[j] = B[j] ^ (~B[(j+1)%5] & B[(j+2)%5]). Starting with outputs
+	// 2 and 3, which read the last two B values, is a measured scheduling
+	// choice: the natural order is slower.
+	for _, j := range []int{2, 3, 4, 1, 0} {
 		out := "AX"
 		if g == 0 {
 			out = cReg[j]
@@ -195,9 +197,9 @@ func emitChi(g int, src, dst string, rcOff int) {
 		p("\tANDNQ %s, %s, %s", bReg[(j+2)%5], bReg[(j+1)%5], out)
 		p("\tXORQ %s, %s", bReg[j], out)
 		if g == 0 && j == 0 {
-			// Iota. cReg[4] is not yet written in this group.
-			p("\tMOVQ %d(SP), %s", rcPtr, cReg[4])
-			p("\tXORQ %d(%s), %s", rcOff, cReg[4], out)
+			// Iota. AX held D[3] only for this group's theta.
+			p("\tMOVQ %d(SP), AX", rcPtr)
+			p("\tXORQ %d(AX), %s", rcOff, out)
 		}
 		p("\tMOVQ %s, %s", out, off(g*5+j, dst))
 		if g != 0 {
