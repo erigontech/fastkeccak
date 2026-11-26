@@ -87,7 +87,7 @@ jobs:
           # A real crash always writes one under testdata/fuzz/. Drop this on Go 1.27+.
           if grep -qE '^[[:space:]]*context deadline exceeded[[:space:]]*$' "$out" \
             && ! grep -q 'failure while testing seed corpus entry' "$out" \
-            && [ ! -d "testdata/fuzz/$FN" ]; then
+            && [ -z "$(git ls-files --others --exclude-standard -- "testdata/fuzz/$FN")" ]; then
             echo "::warning::$FN: end-of-window 'context deadline exceeded' (golang/go#75804), no defect found"
             exit 0
           fi
@@ -109,6 +109,6 @@ jobs:
         with:
           name: ${{ env.NAME }}
           path: ${{ env.CORPUS }}
-          retention-days: 30
+          retention-days: 90 # outlives the schedule being paused after 60 days without commits
           if-no-files-found: ignore
           overwrite: true
