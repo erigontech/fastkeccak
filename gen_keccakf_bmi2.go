@@ -71,7 +71,14 @@ var (
 	bReg = [5]string{"R8", "R9", "R10", "R11", "R12"}
 )
 
-// Frame layout: 25 lanes of temp state, then 8-byte slots.
+// keptLane stays in bReg[4] between rounds: the last chi group computes it
+// and group 0 of the next round reads it right after theta, so a reload would
+// wait for its store, as for dLoc. It must be 24, the lane at position 4 of
+// both groups.
+const keptLane = 24
+
+// Frame layout: 25 lane slots of temp state (keptLane's is unused), then
+// 8-byte slots.
 const (
 	rcPtr     = 200 // pointer to the round constants of the current even round
 	rcEnd     = 208 // end of the round constants table
@@ -132,6 +139,7 @@ func main() {
 			p("\tXORQ %s, %s", off(r*5+c, "DI"), cReg[c])
 		}
 	}
+	p("\tMOVQ %s, %s", off(keptLane, "DI"), bReg[4])
 	p("")
 	p("loop:")
 	p("\t// Even round: array -> stack.")
@@ -145,6 +153,7 @@ func main() {
 	p("\tMOVQ AX, %d(SP)", rcPtr)
 	p("\tCMPQ AX, %d(SP)", rcEnd)
 	p("\tJNE loop")
+	p("\tMOVQ %s, %s", bReg[4], off(keptLane, "DI"))
 	p("\tRET")
 
 	if err := os.WriteFile("keccakf_amd64_bmi2.s", []byte(asm.String()), 0o644); err != nil {
@@ -179,7 +188,9 @@ func emitChi(g int, src, dst string, rcOff int) {
 		d = dLoc0
 	}
 	for i, l := range groups[g] {
-		p("\tMOVQ %s, %s", off(l.idx, src), bReg[i])
+		if l.idx != keptLane {
+			p("\tMOVQ %s, %s", off(l.idx, src), bReg[i])
+		}
 		p("\tXORQ %s, %s", d[l.idx%5], bReg[i])
 		if l.rot != 0 {
 			p("\tRORXQ $%d, %s, %s", 64-l.rot, bReg[i], bReg[i])
@@ -195,6 +206,12 @@ func emitChi(g int, src, dst string, rcOff int) {
 			out = cReg[j]
 		}
 		p("\tANDNQ %s, %s, %s", bReg[(j+2)%5], bReg[(j+1)%5], out)
+		if g*5+j == keptLane {
+			// In place: outputs 2 and 3, the other readers of B[4], are done.
+			p("\tXORQ %s, %s", out, bReg[4])
+			p("\tXORQ %s, %s", bReg[4], cReg[j])
+			continue
+		}
 		p("\tXORQ %s, %s", bReg[j], out)
 		if g == 0 && j == 0 {
 			// Iota. AX held D[3] only for this group's theta.
