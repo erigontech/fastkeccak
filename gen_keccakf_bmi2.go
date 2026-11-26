@@ -57,7 +57,8 @@ var groups = [5][5]lane{
 var dReg = [5]string{"R14", "R15", "BP", "SI", "DX"}
 
 const (
-	fsize     = 208
+	rcEnd     = 200 // end of the round-constant table, after the temp state
+	fsize     = rcEnd + 8
 	rateLanes = 17 // rate / 8 = 136 / 8
 )
 
@@ -103,7 +104,7 @@ func main() {
 	p("rounds:")
 	p("\tLEAQ keccakRC<>(SB), R13")
 	p("\tLEAQ %d(R13), AX", len(rc)*8)
-	p("\tMOVQ AX, 200(SP)")
+	p("\tMOVQ AX, %d(SP)", rcEnd)
 	p("")
 	p("loop:")
 	for round := 0; round < 2; round++ {
@@ -113,7 +114,9 @@ func main() {
 	}
 	p("")
 	p("\tADDQ $16, R13")
-	p("\tCMPQ R13, 200(SP)")
+	// A register-memory CMPQ fuses with the JNE, unlike a memory-immediate
+	// one such as a compare with a zero sentinel.
+	p("\tCMPQ R13, %d(SP)", rcEnd)
 	p("\tJNE loop")
 	p("\tRET")
 	p("")
