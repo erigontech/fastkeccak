@@ -2,13 +2,15 @@
 
 // gen_keccakf_bmi2.go generates keccakf_amd64_bmi2.s — a BMI2-optimized
 // Keccak-f[1600] permutation using RORXQ and ANDNQ.
-// Fully unrolled (all 24 rounds).
+// A two-round loop body runs 12 times: the fully unrolled 24 rounds (~22 KB)
+// fall out of the op cache in a large binary and run from the legacy decoder.
 //
 // Key optimizations:
 //   - D values kept in registers (R14, R15, BP, SI, DX), not on stack
 //   - State alternates between the original array (DI) and a 200-byte stack
 //     buffer, avoiding a second 200-byte copy
-//   - Frame is only 200 bytes (25 × 8 for temp state)
+//   - Frame is 208 bytes: 25 × 8 for temp state, then the end of the
+//     round-constant table
 //   - Optional XOR-and-permute: when buf != nil, XORs rate bytes into state
 //     before permuting, eliminating one full memory pass
 //
@@ -55,7 +57,8 @@ var groups = [5][5]lane{
 var dReg = [5]string{"R14", "R15", "BP", "SI", "DX"}
 
 const (
-	fsize     = 200
+	rcEnd     = 200 // end of the round-constant table, after the temp state
+	fsize     = rcEnd + 8
 	rateLanes = 17 // rate / 8 = 136 / 8
 )
 
@@ -99,23 +102,34 @@ func main() {
 	}
 	p("")
 	p("rounds:")
-
-	for round := 0; round < 24; round++ {
+	p("\tLEAQ keccakRC<>(SB), R13")
+	p("\tLEAQ %d(R13), AX", len(rc)*8)
+	p("\tMOVQ AX, %d(SP)", rcEnd)
+	p("")
+	p("loop:")
+	for round := 0; round < 2; round++ {
 		p("")
-		p("\t// Round %d", round)
-		srcArray := (round % 2) == 0
-		emitRound(srcArray, round)
+		p("\t// Round %d of 2", round)
+		emitRound(round)
 	}
-
+	p("")
+	p("\tADDQ $16, R13")
+	// A register-memory CMPQ fuses with the JNE, unlike a memory-immediate
+	// one such as a compare with a zero sentinel.
+	p("\tCMPQ R13, %d(SP)", rcEnd)
+	p("\tJNE loop")
 	p("\tRET")
+	p("")
+	for i, c := range rc {
+		p("DATA keccakRC<>+%d(SB)/8, $0x%016x", i*8, c)
+	}
+	p("GLOBL keccakRC<>(SB), RODATA|NOPTR, $%d", len(rc)*8)
 }
 
-// srcArray: true = source is array (DI), dest is stack (SP)
-//
-//	false = source is stack (SP), dest is array (DI)
-func emitRound(srcArray bool, round int) {
-	// Load round constant into R13.
-	p("\tMOVQ $0x%016x, R13", rc[round])
+// Round 0 reads the array (DI) and writes the stack (SP); round 1 reads the
+// stack and writes the array back.
+func emitRound(round int) {
+	srcArray := round == 0
 
 	// Theta: 5 column parities → AX, BX, CX, DX, SI.
 	colR := [5]string{"AX", "BX", "CX", "DX", "SI"}
@@ -143,11 +157,11 @@ func emitRound(srcArray bool, round int) {
 
 	// Five chi groups.
 	for g := 0; g < 5; g++ {
-		emitChi(g, srcArray, g == 0)
+		emitChi(g, srcArray, g == 0, round)
 	}
 }
 
-func emitChi(g int, srcArray, first bool) {
+func emitChi(g int, srcArray, first bool, round int) {
 	B := [5]string{"R8", "R9", "R10", "R11", "R12"}
 
 	// Load lane, XOR with D (register!), rotate.
@@ -165,7 +179,7 @@ func emitChi(g int, srcArray, first bool) {
 		p("\tANDNQ %s, %s, AX", B[(j+2)%5], B[(j+1)%5])
 		p("\tXORQ %s, AX", B[j])
 		if first && j == 0 {
-			p("\tXORQ R13, AX")
+			p("\tXORQ %d(R13), AX", round*8)
 		}
 		p("\tMOVQ AX, %s", off(g*5+j, !srcArray))
 	}
