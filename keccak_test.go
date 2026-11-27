@@ -190,6 +190,7 @@ func FuzzSum256(f *testing.F) {
 	f.Add(make([]byte, rate))
 	f.Add(make([]byte, rate+1))
 	f.Add(make([]byte, rate*3+50))
+	f.Add(bytes.Repeat([]byte{0xa5, 0x3c, 0x7e}, rate))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Reference: x/crypto NewLegacyKeccak256.
