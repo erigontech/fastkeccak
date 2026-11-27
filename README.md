@@ -31,6 +31,20 @@ h.Write(part2)
 sum := h.Sum256()
 ```
 
+### Many messages at once
+
+```go
+// out[i] = Sum256(msgs[i]); out must not overlap any message.
+out := make([][32]byte, len(msgs))
+keccak.SumMany256(msgs, out)
+```
+
+On amd64 with AVX2 or AVX-512VL, `SumMany256` hashes four messages per permutation, one per
+64-bit lane of a YMM register; a lane that finishes a message takes the next one. With fewer
+than four messages, on other platforms, or with the `purego` tag it is a loop over `Sum256`.
+The kernel is checked against `Sum256` at startup and disabled if the check fails.
+`go test -run=^$ -bench=SumMany256` compares the `Sum256` loop with each kernel the CPU has.
+
 ## Benchmarks
 
 `Sum256` vs `x/crypto/sha3.NewLegacyKeccak256`, medians via benchstat. The two
@@ -90,6 +104,9 @@ GOARCH=arm64 go vet ./...
 
 # Fuzz against the x/crypto reference
 go test -run=^$ -fuzz FuzzSum256 -fuzztime 30s
+
+# Fuzz SumMany256 and each four-lane kernel against Sum256
+go test -run=^$ -fuzz FuzzSumMany256 -fuzztime 30s
 ```
 
 CI runs the suite on real amd64 and arm64 hardware — emulation is not a

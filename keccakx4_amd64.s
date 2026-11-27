@@ -128,8 +128,8 @@ DATA rcx4<>+752(SB)/8, $0x8000000080008008
 DATA rcx4<>+760(SB)/8, $0x8000000080008008
 GLOBL rcx4<>(SB), RODATA|NOPTR, $768
 
-// func keccakX4AVX2(a *[100]uint64, blocks *[4]*byte, scratch *[100]uint64)
-TEXT ·keccakX4AVX2(SB), $128-24
+// func keccakX4AVX2(a *[100]uint64, blocks *[4]*byte)
+TEXT ·keccakX4AVX2(SB), $832-16
 	MOVQ        a+0(FP), AX
 	MOVQ        blocks+8(FP), CX
 	MOVQ        0(CX), R8
@@ -223,7 +223,8 @@ TEXT ·keccakX4AVX2(SB), $128-24
 	VINSERTI128 $1, X1, Y0, Y0
 	VPXOR       512(AX), Y0, Y0
 	VMOVDQU     Y0, 512(AX)
-	MOVQ        scratch+16(FP), BX
+	LEAQ        31(SP), BX
+	ANDQ        $~31, BX
 	LEAQ        rcx4<>(SB), DX
 	MOVQ        $11, CX
 	VMOVDQU     0(AX), Y11

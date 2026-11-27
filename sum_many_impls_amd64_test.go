@@ -4,13 +4,13 @@ package keccak
 
 import "golang.org/x/sys/cpu"
 
-func availableX4() map[string]func(*[100]uint64, *[4]*byte) {
-	impls := map[string]func(*[100]uint64, *[4]*byte){}
+func availableX4() map[string]x4Kernel {
+	kernels := map[string]x4Kernel{}
 	if cpu.X86.HasAVX2 {
-		impls["avx2"] = keccakX4AVX2Scratch
+		kernels["avx2"] = x4AVX2
 	}
 	if cpu.X86.HasAVX512F && cpu.X86.HasAVX512VL {
-		impls["avx512"] = keccakX4AVX512
+		kernels["avx512"] = x4AVX512
 	}
-	return impls
+	return kernels
 }

@@ -3,6 +3,7 @@ package keccak
 import (
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"testing"
 )
@@ -29,14 +30,14 @@ func checkSumMany(t *testing.T, msgs [][]byte) {
 	}
 }
 
-// forEachX4 runs f once per four-lane implementation this CPU can run, and once without any.
+// forEachX4 runs f once per four-lane kernel this CPU can run, and once without any.
 func forEachX4(t *testing.T, f func(t *testing.T)) {
-	impls := map[string]func(*[100]uint64, *[4]*byte){"scalar": nil}
-	maps.Copy(impls, availableX4())
-	for name, impl := range impls {
+	kernels := map[string]x4Kernel{"scalar": x4None}
+	maps.Copy(kernels, availableX4())
+	for name, k := range kernels {
 		t.Run(name, func(t *testing.T) {
 			old := x4
-			x4 = impl
+			x4 = k
 			t.Cleanup(func() { x4 = old })
 			f(t)
 		})
@@ -75,13 +76,19 @@ func TestSumMany256MixedLengths(t *testing.T) {
 	})
 }
 
-func TestX4SelfTestDetectsWrongPermutation(t *testing.T) {
-	broken := func(a *[100]uint64, blocks *[4]*byte) { a[0] ^= 1 }
-	if x4SelfTest(broken) {
-		t.Fatal("self-test accepted a wrong permutation")
+func TestX4SelfTestDetectsWrongHash(t *testing.T) {
+	wrong := func(msgs [][]byte, out [][32]byte) {
+		for i, msg := range msgs {
+			out[i] = Sum256(msg)
+		}
+		out[len(out)-1][0] ^= 1
+	}
+	if matchesSum256(wrong) {
+		t.Fatal("self-test accepted a wrong hash")
 	}
 }
 
+// FuzzSumMany256 runs SumMany256 and every four-lane kernel, whatever the batch size.
 func FuzzSumMany256(f *testing.F) {
 	f.Add([]byte("seed"), uint16(5))
 	f.Fuzz(func(t *testing.T, data []byte, split uint16) {
@@ -94,23 +101,65 @@ func FuzzSumMany256(f *testing.F) {
 			step = step*7%301 + 1
 		}
 		checkSumMany(t, msgs)
-	})
-}
-
-func BenchmarkSumMany256(b *testing.B) {
-	r := rand.New(rand.NewPCG(5, 6))
-	msgs := randomMsgs(r, 300, 4*rate)
-	out := make([][32]byte, len(msgs))
-	b.Run("Sum256", func(b *testing.B) {
-		for b.Loop() {
-			for i, m := range msgs {
-				out[i] = Sum256(m)
+		out := make([][32]byte, len(msgs))
+		for name, k := range availableX4() {
+			sumManyX4(k, msgs, out)
+			for i, msg := range msgs {
+				if want := Sum256(msg); out[i] != want {
+					t.Fatalf("%s: msg %d of %d (len %d): got %x, want %x", name, i, len(msgs), len(msg), out[i], want)
+				}
 			}
 		}
 	})
-	b.Run("SumMany256", func(b *testing.B) {
-		for b.Loop() {
-			SumMany256(msgs, out)
+}
+
+// BenchmarkSumMany256 compares a Sum256 loop with each four-lane kernel, per message shape and
+// batch size. ns/op is per batch; MB/s counts message bytes.
+func BenchmarkSumMany256(b *testing.B) {
+	shapes := []struct {
+		name   string
+		minLen int
+		maxLen int
+	}{
+		{"key32", 32, 32},
+		{"key64", 64, 64},
+		{"node100-600", 100, 600},
+		{"tx0-544", 0, 4 * rate},
+	}
+	kernels := availableX4()
+	names := slices.Sorted(maps.Keys(kernels))
+	for _, shape := range shapes {
+		for _, n := range []int{4, 16, 64, 256, 1024} {
+			r := rand.New(rand.NewPCG(5, uint64(n)))
+			msgs := make([][]byte, n)
+			bytes := 0
+			for i := range msgs {
+				msgs[i] = make([]byte, shape.minLen+r.IntN(shape.maxLen-shape.minLen+1))
+				for j := range msgs[i] {
+					msgs[i][j] = byte(r.Uint32())
+				}
+				bytes += len(msgs[i])
+			}
+			out := make([][32]byte, n)
+			prefix := shape.name + "/n=" + strconv.Itoa(n) + "/"
+			b.Run(prefix+"Sum256", func(b *testing.B) {
+				b.SetBytes(int64(bytes))
+				b.ReportAllocs()
+				for b.Loop() {
+					for i, m := range msgs {
+						out[i] = Sum256(m)
+					}
+				}
+			})
+			for _, name := range names {
+				b.Run(prefix+name, func(b *testing.B) {
+					b.SetBytes(int64(bytes))
+					b.ReportAllocs()
+					for b.Loop() {
+						sumManyX4(kernels[name], msgs, out)
+					}
+				})
+			}
 		}
-	})
+	}
 }

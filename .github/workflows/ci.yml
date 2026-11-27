@@ -55,6 +55,9 @@ jobs:
       - name: Fuzz streaming Write chunking
         if: runner.os != 'Windows'
         run: go test -run=^$ -fuzz FuzzWriteChunks -fuzztime 20s .
+      - name: Fuzz SumMany256 and each four-lane kernel against Sum256
+        if: runner.os != 'Windows'
+        run: go test -run=^$ -fuzz FuzzSumMany256 -fuzztime 20s .
       - name: Upload fuzz crash reproducers
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

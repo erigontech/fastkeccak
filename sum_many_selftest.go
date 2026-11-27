@@ -1,8 +1,8 @@
 package keccak
 
-// x4SelfTest reports whether permute hashes messages of every block-count pattern a lane can
-// see, including lanes that finish at different times, the same as Sum256.
-func x4SelfTest(permute func(a *[100]uint64, blocks *[4]*byte)) bool {
+// matchesSum256 reports whether sumMany hashes messages of every block-count pattern a lane
+// can see, including lanes that finish at different times, the same as Sum256.
+func matchesSum256(sumMany func(msgs [][]byte, out [][32]byte)) bool {
 	sizes := []int{0, 1, rate - 1, rate, rate + 1, 3*rate + 7, 2 * rate, 55, 700}
 	msgs := make([][]byte, len(sizes))
 	for i, n := range sizes {
@@ -12,7 +12,7 @@ func x4SelfTest(permute func(a *[100]uint64, blocks *[4]*byte)) bool {
 		}
 	}
 	out := make([][32]byte, len(msgs))
-	sumManyX4(permute, msgs, out)
+	sumMany(msgs, out)
 	for i, msg := range msgs {
 		if out[i] != Sum256(msg) {
 			return false

@@ -5,8 +5,8 @@
 // offset 32*i + 8*m of the state.
 //
 // Two variants share the absorb step:
-//   - keccakX4AVX2 keeps the state in memory and ping-pongs with a scratch state, so it fits
-//     in 16 YMM registers. Rotations are a shift pair and an OR.
+//   - keccakX4AVX2 keeps the state in memory and ping-pongs with a scratch state in its own
+//     stack frame, so it fits in 16 YMM registers. Rotations are a shift pair and an OR.
 //   - keccakX4AVX512 (AVX-512F+VL on YMM) keeps the state in Y0-Y24. rho+pi become a
 //     renaming of registers done here, theta and chi use VPTERNLOGQ and rotations VPROLQ.
 //     All 24 rounds are unrolled because the renaming differs per round.
@@ -94,12 +94,20 @@ func loadPointers() {
 	emit("MOVQ 24(CX), R11")
 }
 
+// A frame of at least 128 bytes (abi.StackSmall) keeps the stack-growth check: the assembler
+// marks a smaller leaf NOSPLIT on its own. The AVX2 frame also holds the 800-byte scratch state.
+const (
+	frameAVX2   = 832
+	frameAVX512 = 128
+)
+
 func genAVX2() {
-	fmt.Fprintln(w, "// func keccakX4AVX2(a *[100]uint64, blocks *[4]*byte, scratch *[100]uint64)")
-	fmt.Fprintln(w, "TEXT ·keccakX4AVX2(SB), $128-24")
+	fmt.Fprintln(w, "// func keccakX4AVX2(a *[100]uint64, blocks *[4]*byte)")
+	fmt.Fprintf(w, "TEXT ·keccakX4AVX2(SB), $%d-16\n", frameAVX2)
 	loadPointers()
 	absorb()
-	emit("MOVQ scratch+16(FP), BX")
+	emit("LEAQ 31(SP), BX")
+	emit("ANDQ $~31, BX")
 	emit("LEAQ rcx4<>(SB), DX")
 	emit("MOVQ $11, CX")
 	B := [5]string{"Y0", "Y1", "Y2", "Y3", "Y4"}
@@ -168,7 +176,7 @@ func genAVX512() {
 	tern := func(imm, c, b, a int) { emit("VPTERNLOGQ $0x%02x, Y%d, Y%d, Y%d", imm, c, b, a) }
 
 	fmt.Fprintln(w, "// func keccakX4AVX512(a *[100]uint64, blocks *[4]*byte)")
-	fmt.Fprintln(w, "TEXT ·keccakX4AVX512(SB), $128-16")
+	fmt.Fprintf(w, "TEXT ·keccakX4AVX512(SB), $%d-16\n", frameAVX512)
 	loadPointers()
 	absorb()
 	emit("LEAQ rc<>(SB), DX")
