@@ -3,6 +3,7 @@ package keccak
 import (
 	"maps"
 	"math/rand/v2"
+	"os"
 	"slices"
 	"strconv"
 	"testing"
@@ -41,6 +42,15 @@ func forEachX4(t *testing.T, f func(t *testing.T)) {
 			t.Cleanup(func() { x4 = old })
 			f(t)
 		})
+	}
+}
+
+// TestX4Kernels logs the kernel SumMany256 selected. With KECCAK_REQUIRE_X4 set it fails unless
+// that kernel is the selected one, so a CI job can prove which kernel it ran.
+func TestX4Kernels(t *testing.T) {
+	t.Logf("selected: %v, available: %v", x4, slices.Sorted(maps.Keys(availableX4())))
+	if want := os.Getenv("KECCAK_REQUIRE_X4"); want != "" && x4.String() != want {
+		t.Fatalf("KECCAK_REQUIRE_X4=%s, but SumMany256 selected %v", want, x4)
 	}
 }
 

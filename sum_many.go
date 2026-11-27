@@ -34,6 +34,17 @@ const (
 	x4AVX512
 )
 
+func (k x4Kernel) String() string {
+	switch k {
+	case x4AVX2:
+		return "avx2"
+	case x4AVX512:
+		return "avx512"
+	default:
+		return "none"
+	}
+}
+
 // x4 is the kernel SumMany256 uses. It is x4None when no four-lane kernel is available or
 // the startup self-test failed.
 var x4 x4Kernel
