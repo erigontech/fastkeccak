@@ -15,7 +15,9 @@ import (
 // messages at a time, which is faster than calling Sum256 in a loop when there are several
 // messages; elsewhere it is that loop.
 func SumMany256(msgs [][]byte, out [][32]byte) {
-	_ = out[:len(msgs)]
+	if len(out) < len(msgs) {
+		panic("keccak: SumMany256 out is shorter than msgs")
+	}
 	if x4 == x4None || len(msgs) < 4 {
 		for i, msg := range msgs {
 			out[i] = Sum256(msg)
@@ -45,8 +47,7 @@ func (k x4Kernel) String() string {
 	}
 }
 
-// x4 is the kernel SumMany256 uses. It is x4None when no four-lane kernel is available or
-// the startup self-test failed.
+// x4 is the kernel SumMany256 uses, x4None when the CPU has no four-lane kernel.
 var x4 x4Kernel
 
 var zeroBlock [rate]byte

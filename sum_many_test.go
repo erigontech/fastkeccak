@@ -86,16 +86,21 @@ func TestSumMany256MixedLengths(t *testing.T) {
 	})
 }
 
-func TestX4SelfTestDetectsWrongHash(t *testing.T) {
-	wrong := func(msgs [][]byte, out [][32]byte) {
-		for i, msg := range msgs {
-			out[i] = Sum256(msg)
-		}
-		out[len(out)-1][0] ^= 1
-	}
-	if matchesSum256(wrong) {
-		t.Fatal("self-test accepted a wrong hash")
-	}
+// An out shorter than msgs panics before any hash is written, even when it has spare capacity.
+func TestSumMany256ShortOutWritesNothing(t *testing.T) {
+	forEachX4(t, func(t *testing.T) {
+		msgs := make([][]byte, 8)
+		backing := make([][32]byte, len(msgs))
+		defer func() {
+			if recover() == nil {
+				t.Fatal("no panic")
+			}
+			if backing[0] != ([32]byte{}) {
+				t.Fatal("out[0] written before the panic")
+			}
+		}()
+		SumMany256(msgs, backing[:1])
+	})
 }
 
 // FuzzSumMany256 runs SumMany256 and every four-lane kernel, whatever the batch size.

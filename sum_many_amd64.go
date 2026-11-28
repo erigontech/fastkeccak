@@ -26,19 +26,16 @@ func permuteX4(k x4Kernel, a *[100]uint64, blocks *[4]*byte) {
 	}
 }
 
+func hasX4AVX2() bool { return cpu.X86.HasAVX2 }
+
+// hasX4AVX512 needs AVX2 too: the AVX-512 kernel shares the AVX2 absorb.
+func hasX4AVX512() bool { return cpu.X86.HasAVX2 && cpu.X86.HasAVX512F && cpu.X86.HasAVX512VL }
+
 func init() {
 	switch {
-	case cpu.X86.HasAVX512F && cpu.X86.HasAVX512VL:
+	case hasX4AVX512():
 		x4 = x4AVX512
-	case cpu.X86.HasAVX2:
+	case hasX4AVX2():
 		x4 = x4AVX2
 	}
-	if x4 != x4None && !x4SelfTest(x4) {
-		x4 = x4None
-	}
-}
-
-// x4SelfTest reports whether kernel k gives the same hashes as Sum256.
-func x4SelfTest(k x4Kernel) bool {
-	return matchesSum256(func(msgs [][]byte, out [][32]byte) { sumManyX4(k, msgs, out) })
 }

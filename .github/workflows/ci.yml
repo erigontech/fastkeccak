@@ -72,8 +72,7 @@ jobs:
   # The SumMany256 four-lane kernels under Intel SDE, whatever the runner CPU:
   # -spr (Sapphire Rapids) selects the AVX-512 kernel, -hsw (Haswell) the AVX2
   # one. KECCAK_REQUIRE_X4 makes TestX4Kernels fail unless SumMany256 selected
-  # that kernel, so a kernel disabled by the startup self-test turns the job
-  # red. The test binary is built natively first and only the SumMany tests
+  # that kernel. The test binary is built natively first and only the SumMany tests
   # run, because everything under SDE is 10-100x slower.
   avx512-sde:
     runs-on: ubuntu-latest
