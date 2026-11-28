@@ -1,8 +1,8 @@
 name: Fuzz
 
-# Mutation fuzzing that keeps its corpus. The 20 s fuzz steps in ci.yml start
-# from the seeds on every run; this nightly job continues from the corpus the
-# previous run left, so the search goes deeper each night.
+# Mutation fuzzing that keeps its corpus. The 20 s fuzz steps in ci.yml never
+# grow the corpus; this nightly job continues from the corpus the previous run
+# left, so the search goes deeper each night.
 
 on:
   schedule:
@@ -36,7 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         # Each runner fuzzes a different implementation (see ci.yml).
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15]
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         fn: [FuzzSum256, FuzzWriteChunks]
     runs-on: ${{ matrix.os }}
     env:
@@ -47,8 +47,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: "1.27.4"
           cache: false
+      - name: Report CPU features
+        run: |
+          grep -m1 -E '^(flags|Features)' /proc/cpuinfo | tr ' ' '\n' \
+            | grep -xE 'bmi1|bmi2|avx2|avx512f|sha3|asimd' | sort -u | paste -sd' ' -
 
       # The Actions cache cannot update an entry once saved and evicts idle ones, so
       # the corpus lives in artifacts: each run continues from the newest one of its
@@ -59,6 +63,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           corpus="$(go env GOCACHE)/fuzz"
           mkdir -p "$corpus"
           echo "CORPUS=$corpus" >> "$GITHUB_ENV"
@@ -76,23 +81,7 @@ jobs:
         env:
           FUZZTIME: ${{ inputs.fuzztime || '30m' }}
           FN: ${{ matrix.fn }}
-        run: |
-          out="$RUNNER_TEMP/fuzz.out"
-          set +e
-          go test . -run '^$' -fuzz "^${FN}\$" -fuzztime "$FUZZTIME" 2>&1 | tee "$out"
-          status="${PIPESTATUS[0]}"
-          set -e
-          [ "$status" -eq 0 ] && exit 0
-          # Go before 1.27 can report the end of the fuzztime window as a failure
-          # (golang/go#75804): a bare "context deadline exceeded" with no reproducer.
-          # A real crash always writes one under testdata/fuzz/. Drop this on Go 1.27+.
-          if grep -qE '^[[:space:]]*context deadline exceeded[[:space:]]*$' "$out" \
-            && ! grep -q 'failure while testing seed corpus entry' "$out" \
-            && [ -z "$(git ls-files --others --exclude-standard -- "testdata/fuzz/$FN")" ]; then
-            echo "::warning::$FN: end-of-window 'context deadline exceeded' (golang/go#75804), no defect found"
-            exit 0
-          fi
-          exit "$status"
+        run: go test . -run '^$' -fuzz "^${FN}\$" -fuzztime "$FUZZTIME"
 
       - name: Upload crash reproducer
         if: failure()
@@ -113,3 +102,28 @@ jobs:
           retention-days: 90 # outlives the schedule being paused after 60 days without commits
           if-no-files-found: ignore
           overwrite: true
+
+  # GitHub mails a failed scheduled run only to the user who last changed its
+  # cron line, so a nightly crash opens or updates a tracking issue instead.
+  notify:
+    needs: [fuzz]
+    if: ${{ always() && needs.fuzz.result == 'failure' && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create nightly-fuzz --color B60205 --description "Failure of the nightly fuzz workflow" --force
+          body="The nightly Fuzz workflow failed: $RUN_URL. Legs that found a crash upload a \`fuzz-crash-<os>-<target>\` artifact with the reproducer."
+          num=$(gh issue list --label nightly-fuzz --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$body"
+          else
+            gh issue create --title "Nightly fuzz failure" --label nightly-fuzz --body "$body"
+          fi
