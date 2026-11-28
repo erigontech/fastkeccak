@@ -9,7 +9,8 @@
 //     stack frame, so it fits in 16 YMM registers. Rotations are a shift pair and an OR.
 //   - keccakX4AVX512 (AVX-512F+VL on YMM) keeps the state in Y0-Y24. rho+pi become a
 //     renaming of registers done here, theta and chi use VPTERNLOGQ and rotations VPROLQ.
-//     All 24 rounds are unrolled because the renaming differs per round.
+//     The round is a loop: at its end 25 register moves undo the renaming. On Zen 4 this is
+//     a little faster than unrolling all 24 rounds, at a tenth of the code size.
 //
 // Usage: go run gen_keccakx4.go
 package main
@@ -108,7 +109,7 @@ func genAVX2() {
 	absorb()
 	emit("LEAQ 31(SP), BX")
 	emit("ANDQ $~31, BX")
-	emit("LEAQ rcx4<>(SB), DX")
+	emit("LEAQ rc<>(SB), DX")
 	emit("MOVQ $11, CX")
 	B := [5]string{"Y0", "Y1", "Y2", "Y3", "Y4"}
 	D := [5]string{"Y5", "Y6", "Y7", "Y8", "Y9"}
@@ -143,7 +144,9 @@ func genAVX2() {
 				emit("VPANDN %s, %s, %s", B[(X+2)%5], B[(X+1)%5], T)
 				emit("VPXOR %s, %s, %s", B[X], T, T)
 				if X == 0 && Y == 0 {
-					emit("VPXOR %d(DX), %s, %s", rcOff, T, T)
+					// C[0] is free here: it was used for D and is rebuilt below.
+					emit("VPBROADCASTQ %d(DX), %s", rcOff, C[0])
+					emit("VPXOR %s, %s, %s", C[0], T, T)
 				}
 				emit("VMOVDQU %s, %d(%s)", T, 32*(X+5*Y), dst)
 				if !last {
@@ -158,12 +161,12 @@ func genAVX2() {
 	}
 	fmt.Fprintln(w, "avx2loop:")
 	round("AX", "BX", 0, false)
-	round("BX", "AX", 32, false)
-	emit("ADDQ $64, DX")
+	round("BX", "AX", 8, false)
+	emit("ADDQ $16, DX")
 	emit("DECQ CX")
 	emit("JNZ avx2loop")
 	round("AX", "BX", 0, false)
-	round("BX", "AX", 32, true)
+	round("BX", "AX", 8, true)
 	emit("VZEROUPPER")
 	emit("RET")
 	fmt.Fprintln(w)
@@ -187,47 +190,66 @@ func genAVX512() {
 	}
 	C := [5]int{25, 26, 27, 28, 29}
 	const T = 30
-	for r := range 24 {
-		// theta: A[x,y] ^= C[x-1] ^ rol(C[x+1], 1)
-		for x := range 5 {
-			emit("VMOVDQA64 Y%d, Y%d", m[x], C[x])
-			tern(xor3, m[x+10], m[x+5], C[x])
-			tern(xor3, m[x+20], m[x+15], C[x])
-		}
-		for x := range 5 {
-			emit("VPROLQ $1, Y%d, Y%d", C[(x+1)%5], T)
-			for y := range 5 {
-				tern(xor3, T, C[(x+4)%5], m[x+5*y])
-			}
-		}
-		// rho rotates in place; pi only renames: B[y, 2x+3y] = rol(A[x,y]).
-		var nm [25]int
-		for x := range 5 {
-			for y := range 5 {
-				p := m[x+5*y]
-				if rot[x][y] != 0 {
-					emit("VPROLQ $%d, Y%d, Y%d", rot[x][y], p, p)
-				}
-				nm[y+5*((2*x+3*y)%5)] = p
-			}
-		}
-		m = nm
-		// chi in place per row, with copies of the first two lanes in the free C registers.
-		for y := range 5 {
-			b := [5]int{m[5*y], m[5*y+1], m[5*y+2], m[5*y+3], m[5*y+4]}
-			emit("VMOVDQA64 Y%d, Y%d", b[0], C[0])
-			emit("VMOVDQA64 Y%d, Y%d", b[1], C[1])
-			tern(chi, b[2], b[1], b[0])
-			tern(chi, b[3], b[2], b[1])
-			tern(chi, b[4], b[3], b[2])
-			tern(chi, C[0], b[4], b[3])
-			tern(chi, C[1], C[0], b[4])
-		}
-		emit("VPBROADCASTQ %d(DX), Y%d", 8*r, T)
-		emit("VPXORQ Y%d, Y%d, Y%d", T, m[0], m[0])
+	emit("MOVQ $24, CX")
+	fmt.Fprintln(w, "avx512loop:")
+	// theta: A[x,y] ^= C[x-1] ^ rol(C[x+1], 1)
+	for x := range 5 {
+		emit("VMOVDQA64 Y%d, Y%d", m[x], C[x])
+		tern(xor3, m[x+10], m[x+5], C[x])
+		tern(xor3, m[x+20], m[x+15], C[x])
 	}
+	for x := range 5 {
+		emit("VPROLQ $1, Y%d, Y%d", C[(x+1)%5], T)
+		for y := range 5 {
+			tern(xor3, T, C[(x+4)%5], m[x+5*y])
+		}
+	}
+	// rho rotates in place; pi only renames: B[y, 2x+3y] = rol(A[x,y]).
+	var nm [25]int
+	for x := range 5 {
+		for y := range 5 {
+			p := m[x+5*y]
+			if rot[x][y] != 0 {
+				emit("VPROLQ $%d, Y%d, Y%d", rot[x][y], p, p)
+			}
+			nm[y+5*((2*x+3*y)%5)] = p
+		}
+	}
+	m = nm
+	// chi in place per row, with copies of the first two lanes in the free C registers.
+	for y := range 5 {
+		b := [5]int{m[5*y], m[5*y+1], m[5*y+2], m[5*y+3], m[5*y+4]}
+		emit("VMOVDQA64 Y%d, Y%d", b[0], C[0])
+		emit("VMOVDQA64 Y%d, Y%d", b[1], C[1])
+		tern(chi, b[2], b[1], b[0])
+		tern(chi, b[3], b[2], b[1])
+		tern(chi, b[4], b[3], b[2])
+		tern(chi, C[0], b[4], b[3])
+		tern(chi, C[1], C[0], b[4])
+	}
+	emit("VPBROADCASTQ (DX), Y%d", T)
+	emit("VPXORQ Y%d, Y%d, Y%d", T, m[0], m[0])
+	// Move every lane back to its own register, one cycle of the renaming at a time.
+	var done [25]bool
+	for l := range m {
+		if done[l] || m[l] == l {
+			continue
+		}
+		emit("VMOVDQA64 Y%d, Y%d", l, T)
+		for cur := l; ; cur = m[cur] {
+			done[cur] = true
+			if m[cur] == l {
+				emit("VMOVDQA64 Y%d, Y%d", T, cur)
+				break
+			}
+			emit("VMOVDQA64 Y%d, Y%d", m[cur], cur)
+		}
+	}
+	emit("ADDQ $8, DX")
+	emit("DECQ CX")
+	emit("JNZ avx512loop")
 	for i := range m {
-		emit("VMOVDQU64 Y%d, %d(AX)", m[i], 32*i)
+		emit("VMOVDQU64 Y%d, %d(AX)", i, 32*i)
 	}
 	emit("VZEROUPPER")
 	emit("RET")
@@ -252,13 +274,6 @@ func main() {
 		fmt.Fprintf(w, "DATA rc<>+%d(SB)/8, $0x%016x\n", 8*i, c)
 	}
 	fmt.Fprintln(w, "GLOBL rc<>(SB), RODATA|NOPTR, $192")
-	fmt.Fprintln(w)
-	for i, c := range rc {
-		for l := range 4 {
-			fmt.Fprintf(w, "DATA rcx4<>+%d(SB)/8, $0x%016x\n", 32*i+8*l, c)
-		}
-	}
-	fmt.Fprintln(w, "GLOBL rcx4<>(SB), RODATA|NOPTR, $768")
 	fmt.Fprintln(w)
 	genAVX2()
 	genAVX512()

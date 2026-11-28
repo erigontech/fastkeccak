@@ -4,6 +4,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"testing"
@@ -100,6 +101,21 @@ func TestSumMany256ShortOutWritesNothing(t *testing.T) {
 			}
 		}()
 		SumMany256(msgs, backing[:1])
+	})
+}
+
+// SumMany256 keeps no state between calls, so it does not allocate even on a cold call.
+func TestSumMany256NoAlloc(t *testing.T) {
+	forEachX4(t, func(t *testing.T) {
+		msgs := randomMsgs(rand.New(rand.NewPCG(5, 6)), 64, 2*rate)
+		out := make([][32]byte, len(msgs))
+		allocs := testing.AllocsPerRun(10, func() {
+			runtime.GC() // empties any sync.Pool
+			SumMany256(msgs, out)
+		})
+		if allocs != 0 {
+			t.Fatalf("%v allocations per call", allocs)
+		}
 	})
 }
 

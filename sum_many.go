@@ -5,8 +5,6 @@ package keccak
 
 import (
 	"encoding/binary"
-	"slices"
-	"sync"
 	"unsafe"
 )
 
@@ -56,13 +54,8 @@ var x4 x4Kernel
 
 var zeroBlock [rate]byte
 
-// orderPool holds the message order of sumManyX4. It holds indexes only, so pooling it does
-// not make the messages escape.
-var orderPool = sync.Pool{New: func() any { return new([]int) }}
-
 // sumManyX4 runs four messages at once; a lane that finishes takes the next message, so
-// messages of different lengths do not leave lanes idle. The longest messages go first so
-// the lanes run out together.
+// messages of different lengths do not leave lanes idle.
 func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 	var (
 		abuf   [100 + 3]uint64
@@ -72,13 +65,12 @@ func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 		pos    [4]int
 	)
 	a := align32(&abuf)
-	orderp := orderPool.Get().(*[]int)
-	defer orderPool.Put(orderp)
-	order := longestFirst(*orderp, msgs)
-	*orderp = order
-	next, active := 0, 0
+	order := longestFour(msgs)
+	active := 0
 	for lane := range 4 {
-		cur[lane], next, active = takeNext(order, next, active)
+		if cur[lane] = order.first[lane]; cur[lane] >= 0 {
+			active++
+		}
 	}
 	for active > 0 {
 		for lane := range 4 {
@@ -116,7 +108,9 @@ func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 			}
 			active--
 			pos[lane] = 0
-			cur[lane], next, active = takeNext(order, next, active)
+			if cur[lane] = order.take(len(msgs)); cur[lane] >= 0 {
+				active++
+			}
 		}
 	}
 }
@@ -128,19 +122,35 @@ func align32(buf *[100 + 3]uint64) *[100]uint64 {
 	return (*[100]uint64)(buf[off : off+100])
 }
 
-// takeNext returns the next message for a lane, or -1 when there is none.
-func takeNext(order []int, next, active int) (msg, newNext, newActive int) {
-	if next == len(order) {
-		return -1, next, active
-	}
-	return order[next], next + 1, active + 1
+// msgOrder hands out the messages: the four longest first, one per lane, so that a long
+// message does not end up running alone at the end; then the others in index order.
+type msgOrder struct {
+	first [4]int // longest first; -1 when there are fewer messages
+	next  int
 }
 
-func longestFirst(order []int, msgs [][]byte) []int {
-	order = slices.Grow(order[:0], len(msgs))[:len(msgs)]
-	for i := range order {
-		order[i] = i
+func longestFour(msgs [][]byte) msgOrder {
+	o := msgOrder{first: [4]int{-1, -1, -1, -1}}
+	for i, m := range msgs {
+		j := len(o.first) - 1
+		if o.first[j] >= 0 && len(m) <= len(msgs[o.first[j]]) {
+			continue
+		}
+		for ; j > 0 && (o.first[j-1] < 0 || len(m) > len(msgs[o.first[j-1]])); j-- {
+			o.first[j] = o.first[j-1]
+		}
+		o.first[j] = i
 	}
-	slices.SortFunc(order, func(i, j int) int { return len(msgs[j]) - len(msgs[i]) })
-	return order
+	return o
+}
+
+// take returns the next message after the first four, or -1 when there is none.
+func (o *msgOrder) take(n int) int {
+	for ; o.next < n; o.next++ {
+		if i := o.next; i != o.first[0] && i != o.first[1] && i != o.first[2] && i != o.first[3] {
+			o.next++
+			return i
+		}
+	}
+	return -1
 }
