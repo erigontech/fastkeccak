@@ -72,7 +72,9 @@ func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 			active++
 		}
 	}
-	for active > 0 {
+	// With one lane left and nothing to refill it, a four-lane permutation costs more than a
+	// scalar one, so the loop stops there and the scalar kernel finishes that message.
+	for active > 1 {
 		for lane := range 4 {
 			if cur[lane] < 0 {
 				blocks[lane] = &zeroBlock[0]
@@ -106,11 +108,15 @@ func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 			for w := range 25 {
 				a[4*w+lane] = 0
 			}
-			active--
 			pos[lane] = 0
-			if cur[lane] = order.take(len(msgs)); cur[lane] >= 0 {
-				active++
+			if cur[lane] = order.take(len(msgs)); cur[lane] < 0 {
+				active--
 			}
+		}
+	}
+	for lane := range 4 {
+		if cur[lane] >= 0 {
+			out[cur[lane]] = finishLane(a, lane, msgs[cur[lane]][pos[lane]:])
 		}
 	}
 }

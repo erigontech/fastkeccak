@@ -29,3 +29,15 @@ func TestX4AVX512NeedsAVX2(t *testing.T) {
 		t.Fatal("AVX-512 kernel selectable without AVX2")
 	}
 }
+
+// A lane left alone at the end is finished with the BMI2 scalar kernel, so the four-lane kernels
+// need BMI1 and BMI2 too.
+func TestX4NeedsBMI2(t *testing.T) {
+	saved := cpu.X86
+	t.Cleanup(func() { cpu.X86 = saved })
+	cpu.X86.HasAVX2, cpu.X86.HasAVX512F, cpu.X86.HasAVX512VL = true, true, true
+	cpu.X86.HasBMI1, cpu.X86.HasBMI2 = true, false
+	if hasX4AVX2() || hasX4AVX512() {
+		t.Fatal("four-lane kernel selectable without BMI2")
+	}
+}

@@ -104,6 +104,19 @@ func TestSumMany256ShortOutWritesNothing(t *testing.T) {
 	})
 }
 
+// Batches whose last lanes keep running after the others are done, with one or two long
+// messages ending at every offset of a block.
+func TestSumMany256LongTail(t *testing.T) {
+	forEachX4(t, func(t *testing.T) {
+		r := rand.New(rand.NewPCG(9, 10))
+		for _, long := range []int{rate - 1, rate, rate + 1, 5*rate + 3, 300*rate + 11} {
+			checkSumMany(t, [][]byte{make([]byte, long), {}, {}})
+			checkSumMany(t, append(randomMsgs(r, 9, rate), make([]byte, long)))
+			checkSumMany(t, append(randomMsgs(r, 9, rate), make([]byte, long), make([]byte, long/2+7)))
+		}
+	})
+}
+
 // SumMany256 keeps no state between calls, so it does not allocate even on a cold call.
 func TestSumMany256NoAlloc(t *testing.T) {
 	forEachX4(t, func(t *testing.T) {
@@ -142,6 +155,46 @@ func FuzzSumMany256(f *testing.F) {
 			}
 		}
 	})
+}
+
+// BenchmarkSumMany256Tail covers batches where one long message keeps its lane busy after the
+// others are done.
+func BenchmarkSumMany256Tail(b *testing.B) {
+	fixed := func(n, size int) [][]byte {
+		m := make([][]byte, n)
+		for i := range m {
+			m[i] = make([]byte, size)
+		}
+		return m
+	}
+	shapes := []struct {
+		name string
+		msgs [][]byte
+	}{
+		{"long40KB+2empty", append(fixed(1, 300*rate+11), fixed(2, 0)...)},
+		{"long20KB+15x100B", append(fixed(1, 20000), fixed(15, 100)...)},
+		{"long20KB+255x100B", append(fixed(1, 20000), fixed(255, 100)...)},
+		{"long2KB+255x100B", append(fixed(1, 2000), fixed(255, 100)...)},
+	}
+	kernels := availableX4()
+	names := slices.Sorted(maps.Keys(kernels))
+	for _, shape := range shapes {
+		out := make([][32]byte, len(shape.msgs))
+		b.Run(shape.name+"/Sum256", func(b *testing.B) {
+			for b.Loop() {
+				for i, m := range shape.msgs {
+					out[i] = Sum256(m)
+				}
+			}
+		})
+		for _, name := range names {
+			b.Run(shape.name+"/"+name, func(b *testing.B) {
+				for b.Loop() {
+					sumManyX4(kernels[name], shape.msgs, out)
+				}
+			})
+		}
+	}
 }
 
 // BenchmarkSumMany256 compares a Sum256 loop with each four-lane kernel, per message shape and
