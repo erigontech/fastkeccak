@@ -1,0 +1,129 @@
+name: Fuzz
+
+# Mutation fuzzing that keeps its corpus. The 20 s fuzz steps in ci.yml never
+# grow the corpus; this nightly job continues from the corpus the previous run
+# left, so the search goes deeper each night.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # nightly 03:00 UTC, on the default branch
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Duration per fuzz target (Go duration, e.g. 10m, 1h)'
+        required: false
+        default: '30m'
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    if: github.repository == 'erigontech/fastkeccak' || github.event_name != 'schedule'
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each runner fuzzes a different implementation (see ci.yml).
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        fn: [FuzzSum256, FuzzWriteChunks]
+    runs-on: ${{ matrix.os }}
+    env:
+      NAME: fuzz-corpus-${{ matrix.os }}-${{ matrix.fn }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache: false
+      - name: Report CPU features
+        run: |
+          grep -m1 -E '^(flags|Features)' /proc/cpuinfo | tr ' ' '\n' \
+            | grep -xE 'bmi1|bmi2|avx2|avx512f|sha3|asimd' | sort -u | paste -sd' ' -
+
+      # The Actions cache cannot update an entry once saved and evicts idle ones, so
+      # the corpus lives in artifacts: each run continues from the newest one of its
+      # branch (forks excluded). A failure here stops the leg, because fuzzing from an
+      # empty corpus would replace the kept one.
+      - name: Restore fuzz corpus
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          corpus="$(go env GOCACHE)/fuzz"
+          mkdir -p "$corpus"
+          echo "CORPUS=$corpus" >> "$GITHUB_ENV"
+          run=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == env.GITHUB_REF_NAME and .workflow_run.head_repository_id == .workflow_run.repository_id) | "\(.created_at) \(.workflow_run.id)"' \
+            | sort | tail -n 1 | cut -d' ' -f2)
+          if [ -z "$run" ]; then
+            echo "::warning::No previous corpus for $NAME"
+            exit 0
+          fi
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$corpus"
+          echo "Corpus restored from run $run: $(find "$corpus" -type f | wc -l) files"
+
+      - name: Fuzz ${{ matrix.fn }}
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '30m' }}
+          FN: ${{ matrix.fn }}
+        run: go test . -run '^$' -fuzz "^${FN}\$" -fuzztime "$FUZZTIME"
+
+      - name: Upload crash reproducer
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crash-${{ matrix.os }}-${{ matrix.fn }}
+          path: testdata/fuzz/
+          if-no-files-found: ignore
+
+      # On a fuzz failure too, so a run that finds a crash keeps the rest of its corpus.
+      # Never after a failed restore: a partial corpus would become the newest one.
+      - name: Upload fuzz corpus
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.CORPUS }}
+          retention-days: 90 # outlives the schedule being paused after 60 days without commits
+          if-no-files-found: ignore
+          overwrite: true
+
+  # GitHub mails a failed scheduled run only to the user who last changed its
+  # cron line, so a nightly crash opens or updates a tracking issue instead.
+  notify:
+    needs: [fuzz]
+    if: ${{ always() && needs.fuzz.result == 'failure' && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create nightly-fuzz --color B60205 --description "Failure of the nightly fuzz workflow" --force
+          body="The nightly Fuzz workflow failed: $RUN_URL. Legs that found a crash upload a \`fuzz-crash-<os>-<target>\` artifact with the reproducer."
+          num=$(gh issue list --label nightly-fuzz --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$body"
+          else
+            gh issue create --title "Nightly fuzz failure" --label nightly-fuzz --body "$body"
+          fi
