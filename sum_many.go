@@ -18,7 +18,7 @@ func SumMany256(msgs [][]byte, out [][32]byte) {
 	if len(out) < len(msgs) {
 		panic("keccak: SumMany256 out is shorter than msgs")
 	}
-	if x4 == x4None || len(msgs) < 4 {
+	if x4 == x4None || len(msgs) < minX4Msgs {
 		for i, msg := range msgs {
 			out[i] = Sum256(msg)
 		}
@@ -26,6 +26,10 @@ func SumMany256(msgs [][]byte, out [][32]byte) {
 	}
 	sumManyX4(x4, msgs, out)
 }
+
+// minX4Msgs is the smallest batch the four-lane kernels take: a four-lane permutation costs
+// about 2.3 scalar ones, so with two messages the Sum256 loop is faster, with three it is not.
+const minX4Msgs = 3
 
 // x4Kernel selects a four-lane permutation; see permuteX4.
 type x4Kernel uint8

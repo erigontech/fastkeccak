@@ -41,8 +41,7 @@ keccak.SumMany256(msgs, out)
 
 On amd64 with AVX2 or AVX-512VL, `SumMany256` hashes four messages per permutation, one per
 64-bit lane of a YMM register; a lane that finishes a message takes the next one. With fewer
-than four messages, on other platforms, or with the `purego` tag it is a loop over `Sum256`.
-The kernel is checked against `Sum256` at startup and disabled if the check fails.
+than three messages, on other platforms, or with the `purego` tag it is a loop over `Sum256`.
 `go test -run=^$ -bench=SumMany256` compares the `Sum256` loop with each kernel the CPU has.
 
 ## Benchmarks
