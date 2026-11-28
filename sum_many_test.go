@@ -147,6 +147,7 @@ func FuzzSumMany256(f *testing.F) {
 		checkSumMany(t, msgs)
 		out := make([][32]byte, len(msgs))
 		for name, k := range availableX4() {
+			clear(out)
 			sumManyX4(k, msgs, out)
 			for i, msg := range msgs {
 				if want := Sum256(msg); out[i] != want {
