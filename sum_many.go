@@ -9,9 +9,9 @@ import (
 )
 
 // SumMany256 sets out[i] to the Keccak-256 hash of msgs[i]; out must be at least as long as
-// msgs, and must not overlap any message. On amd64 with AVX2 or AVX-512 it hashes four
-// messages at a time, which is faster than calling Sum256 in a loop when there are several
-// messages; elsewhere it is that loop.
+// msgs, and must not overlap any message. On amd64 with AVX2, BMI1 and BMI2 (plus AVX-512F
+// and AVX-512VL for the AVX-512 kernel) it hashes four messages at a time, which is faster than
+// calling Sum256 in a loop when there are several messages; elsewhere it is that loop.
 func SumMany256(msgs [][]byte, out [][32]byte) {
 	if len(out) < len(msgs) {
 		panic("keccak: SumMany256 out is shorter than msgs")

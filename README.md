@@ -39,9 +39,11 @@ out := make([][32]byte, len(msgs))
 keccak.SumMany256(msgs, out)
 ```
 
-On amd64 with AVX2 or AVX-512VL, `SumMany256` hashes four messages per permutation, one per
-64-bit lane of a YMM register; a lane that finishes a message takes the next one. With fewer
-than three messages, on other platforms, or with the `purego` tag it is a loop over `Sum256`.
+On amd64 with AVX2, BMI1 and BMI2 (plus AVX-512F and AVX-512VL for the AVX-512 kernel),
+`SumMany256` hashes four messages per permutation, one per 64-bit lane of a YMM register; a lane
+that finishes a message takes the next one, and the last message left alone is finished with the
+scalar BMI2 kernel. Without these features, with fewer than three messages, on other platforms,
+or with the `purego` tag it is a loop over `Sum256`.
 `go test -run=^$ -bench=SumMany256` compares the `Sum256` loop with each kernel the CPU has.
 
 ## Benchmarks

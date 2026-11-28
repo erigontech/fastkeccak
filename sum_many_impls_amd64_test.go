@@ -19,25 +19,34 @@ func availableX4() map[string]x4Kernel {
 	return kernels
 }
 
-// The AVX-512 kernel shares the AVX2 absorb, so a CPU (or VM) that reports AVX-512 without AVX2
-// must not get it.
-func TestX4AVX512NeedsAVX2(t *testing.T) {
+// Every kernel needs all of its CPU features: the AVX-512 kernel shares the AVX2 absorb, and a
+// lane left alone at the end is finished with the BMI2 scalar kernel. Each case starts from all
+// features present and removes one.
+func TestX4RequiredFeatures(t *testing.T) {
 	saved := cpu.X86
 	t.Cleanup(func() { cpu.X86 = saved })
-	cpu.X86.HasAVX512F, cpu.X86.HasAVX512VL, cpu.X86.HasAVX2 = true, true, false
-	if hasX4AVX512() {
-		t.Fatal("AVX-512 kernel selectable without AVX2")
-	}
-}
-
-// A lane left alone at the end is finished with the BMI2 scalar kernel, so the four-lane kernels
-// need BMI1 and BMI2 too.
-func TestX4NeedsBMI2(t *testing.T) {
-	saved := cpu.X86
-	t.Cleanup(func() { cpu.X86 = saved })
-	cpu.X86.HasAVX2, cpu.X86.HasAVX512F, cpu.X86.HasAVX512VL = true, true, true
-	cpu.X86.HasBMI1, cpu.X86.HasBMI2 = true, false
-	if hasX4AVX2() || hasX4AVX512() {
-		t.Fatal("four-lane kernel selectable without BMI2")
+	for _, tc := range []struct {
+		missing      string
+		flag         *bool
+		avx2, avx512 bool
+	}{
+		{"none", nil, true, true},
+		{"AVX2", &cpu.X86.HasAVX2, false, false},
+		{"BMI1", &cpu.X86.HasBMI1, false, false},
+		{"BMI2", &cpu.X86.HasBMI2, false, false},
+		{"AVX512F", &cpu.X86.HasAVX512F, true, false},
+		{"AVX512VL", &cpu.X86.HasAVX512VL, true, false},
+	} {
+		cpu.X86.HasAVX2, cpu.X86.HasBMI1, cpu.X86.HasBMI2 = true, true, true
+		cpu.X86.HasAVX512F, cpu.X86.HasAVX512VL = true, true
+		if tc.flag != nil {
+			*tc.flag = false
+		}
+		if got := hasX4AVX2(); got != tc.avx2 {
+			t.Errorf("without %s: AVX2 kernel selectable = %v, want %v", tc.missing, got, tc.avx2)
+		}
+		if got := hasX4AVX512(); got != tc.avx512 {
+			t.Errorf("without %s: AVX-512 kernel selectable = %v, want %v", tc.missing, got, tc.avx512)
+		}
 	}
 }

@@ -127,16 +127,21 @@ func (s *sponge) padAndSqueeze() {
 // sum256Sponge computes Keccak-256 in one shot using the assembly permutation.
 func sum256Sponge(data []byte) [32]byte {
 	var state [200]byte
+	return sum256From(&state, data)
+}
 
+// sum256From absorbs data into state, which may already hold absorbed blocks, then pads and
+// returns the hash.
+func sum256From(state *[200]byte, data []byte) [32]byte {
 	for len(data) >= rate {
-		xorAndPermute(&state, &data[0])
+		xorAndPermute(state, &data[0])
 		data = data[rate:]
 	}
 
-	xorIn(&state, data)
+	xorIn(state, data)
 	state[len(data)] ^= 0x01
 	state[rate-1] ^= 0x80
-	keccakF1600(&state)
+	keccakF1600(state)
 
 	return [32]byte(state[:32])
 }

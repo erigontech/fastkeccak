@@ -52,13 +52,5 @@ func finishLane(a *[100]uint64, lane int, rest []byte) [32]byte {
 	for w := range 25 {
 		binary.LittleEndian.PutUint64(state[8*w:], a[4*w+lane])
 	}
-	for len(rest) >= rate {
-		xorAndPermute(&state, &rest[0])
-		rest = rest[rate:]
-	}
-	xorIn(&state, rest)
-	state[len(rest)] ^= 0x01
-	state[rate-1] ^= 0x80
-	keccakF1600(&state)
-	return [32]byte(state[:32])
+	return sum256From(&state, rest)
 }
