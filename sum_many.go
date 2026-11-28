@@ -38,21 +38,8 @@ const (
 	x4AVX512
 )
 
-func (k x4Kernel) String() string {
-	switch k {
-	case x4AVX2:
-		return "avx2"
-	case x4AVX512:
-		return "avx512"
-	default:
-		return "none"
-	}
-}
-
 // x4 is the kernel SumMany256 uses, x4None when the CPU has no four-lane kernel.
 var x4 x4Kernel
-
-var zeroBlock [rate]byte
 
 // sumManyX4 runs four messages at once; a lane that finishes takes the next message, so
 // messages of different lengths do not leave lanes idle.
@@ -77,7 +64,7 @@ func sumManyX4(k x4Kernel, msgs [][]byte, out [][32]byte) {
 	for active > 1 {
 		for lane := range 4 {
 			if cur[lane] < 0 {
-				blocks[lane] = &zeroBlock[0]
+				blocks[lane] = &pad[lane*rate] // an idle lane's state is never read again
 				continue
 			}
 			rest := msgs[cur[lane]][pos[lane]:]

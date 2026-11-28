@@ -58,8 +58,9 @@ jobs:
       - name: Fuzz streaming Write chunking
         if: runner.os != 'Windows'
         run: go test -run=^$ -fuzz FuzzWriteChunks -fuzztime 20s .
+      # Only amd64 has four-lane kernels; elsewhere SumMany256 is the Sum256 loop.
       - name: Fuzz SumMany256 and each four-lane kernel against Sum256
-        if: runner.os != 'Windows'
+        if: runner.arch == 'X64' && runner.os != 'Windows'
         run: go test -run=^$ -fuzz FuzzSumMany256 -fuzztime 20s .
       - name: Upload fuzz crash reproducers
         if: failure()

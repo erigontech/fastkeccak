@@ -4,7 +4,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"testing"
@@ -49,9 +48,17 @@ func forEachX4(t *testing.T, f func(t *testing.T)) {
 // TestX4Kernels logs the kernel SumMany256 selected. With KECCAK_REQUIRE_X4 set it fails unless
 // that kernel is the selected one, so a CI job can prove which kernel it ran.
 func TestX4Kernels(t *testing.T) {
-	t.Logf("selected: %v, available: %v", x4, slices.Sorted(maps.Keys(availableX4())))
-	if want := os.Getenv("KECCAK_REQUIRE_X4"); want != "" && x4.String() != want {
-		t.Fatalf("KECCAK_REQUIRE_X4=%s, but SumMany256 selected %v", want, x4)
+	want := os.Getenv("KECCAK_REQUIRE_X4")
+	kernels := availableX4()
+	selected := "none"
+	for name, k := range kernels {
+		if k == x4 {
+			selected = name
+		}
+	}
+	t.Logf("selected: %s, available: %v", selected, slices.Sorted(maps.Keys(kernels)))
+	if k, ok := kernels[want]; want != "" && (!ok || k != x4) {
+		t.Fatalf("KECCAK_REQUIRE_X4=%s, but SumMany256 selected %s", want, selected)
 	}
 }
 
@@ -117,13 +124,12 @@ func TestSumMany256LongTail(t *testing.T) {
 	})
 }
 
-// SumMany256 keeps no state between calls, so it does not allocate even on a cold call.
+// SumMany256 keeps its state on the stack, so it does not allocate.
 func TestSumMany256NoAlloc(t *testing.T) {
 	forEachX4(t, func(t *testing.T) {
 		msgs := randomMsgs(rand.New(rand.NewPCG(5, 6)), 64, 2*rate)
 		out := make([][32]byte, len(msgs))
 		allocs := testing.AllocsPerRun(10, func() {
-			runtime.GC() // empties any sync.Pool
 			SumMany256(msgs, out)
 		})
 		if allocs != 0 {
